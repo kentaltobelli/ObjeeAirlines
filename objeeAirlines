@@ -1,0 +1,40 @@
+Enter file contents here//Defenitions
+//PID {Roll, elevators, throttle, heading, altitude, speed, distanceFromTrackline}
+double currentValue[] = {0,0,0,0,0,0,0};
+double desiredValue[] = {0,0,0,0,0,0,0};
+double error[] = {0,0,0,0,0,0,0};
+double errorOld[] = {0,0,0,0,0,0,0};
+double PIDvalue[] = {0,0,0,0,0,0,0};
+double sum[] = {0,0,0,0,0,0,0};
+double Kp[] = {1.5,1.5,1.5,1.5,1.5,1.5,1.5};
+double Ki[] = {.5,.5,.5,.5,.5,.5,.5};
+float Kd[] = {.25,.25,.25,.25,.25,.25,.25};
+int mode = 0;
+
+void setup() {
+  // put your setup code here, to run once:
+
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+//GET CURRENT VALUE
+//CHANGE DESIRED VALUE
+switch(mode) {
+  //takeoff
+  case 0:
+  //flight
+  case 1:
+  
+  
+  //land
+  default:
+}
+//Calc PID
+for(int a = 0; a < 6; a++) {
+  error[a] = currentValue[a] - desiredValue[a];
+  sum[a] += error[a];
+  PIDvalue[a] = Kp[a]*error[a] + Ki*sum[a] + Kd*(error[a]-errorOld[a]);
+  errorOld[a] = error[a];
+}
+}
