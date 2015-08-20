@@ -1,51 +1,86 @@
+/*
+**********************************************************************
+**********************************************************************
 
+
+                          OBJEE Airlines
+                          
+**********************************************************************
+**********************************************************************
+By Kent Altobelli
+   Julian Blanco
+   Tre Maxam
+   Shane Corbett
+
+*/
+
+
+//Includes
 #include <Wire.h>  // Included for I2C communication with MPU6050
 #include <Servo.h>  // Included to drive output servos/gimbals
-
 #include <PID_v1.h>
-//9dof
+  //9dof
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
-//end9dof
-//servo
+  //end9dof
+  //barometer
+#include <Adafruit_BMP085_U.h>
+  
+//servo declerations
 
  Servo elevatorservo;
  Servo raileronservo;
   Servo laileronservo;
  
-#define elevatorservo 4
-#define raileironservo 5
-#define laileironservo 6
+#define elevatorservoo 4
+#define raileironservoo 5
+#define laileironservoo 6
 
+#define SERVO_LOWER 1000
+#define SERVO_UPPER 2000
+#define SERVO_RANGE (SERVO_UPPER - SERVO_LOWER)
+
+
+
+
+
+//Airspeed declerations
 #define AIRSPEED 10
 #define ELEV_REV 1
 #define LAIL_REV -1
 #define RAIL_REV -1
 #define PITOT_APIN 0
 #define PITOT_CENTER 519
-#define SERVO_LOWER 1000
-#define SERVO_UPPER 2000
-#define SERVO_RANGE (SERVO_UPPER - SERVO_LOWER)
-
-
-//barometer
-#include <Adafruit_BMP085_U.h>
-
-
-//ALTOPILOT CODE
-
-#define ISR_FREQ 250  // Interrupt service routine frequency (62 to 7800 Hz)
-
-  // Declare instance of the MPU6050 class
 
 bool pitot_attached = 0;
 int raw_airspeed;
 float airspeed = 0;
 float last_airspeed = 0;
 
+
+//ISR
+#define ISR_FREQ 250  // Interrupt service routine frequency (62 to 7800 Hz)
+// Loop variables
+uint16_t dt;  // Stores time in micros for gyro integration
+uint32_t start;
+uint32_t finish;
+
+volatile uint8_t ISR_count = 0;  // Count variable
+volatile uint8_t orient_update = 0;  // Update orientation flag
+volatile uint8_t servo_update = 0;  // Update servo positions
+volatile uint8_t airspeed_update = 0;  // Update airspeed measurement
+volatile uint8_t altitude_update = 0; //Update Altitude
+//volatile uint8_t gps_update = 0; //Update Altitude
+                    // Error code returned when MPU6050 is read
+int temp;
+long tic;
+long toc;
+
 //9dof
 Adafruit_BNO055 bno = Adafruit_BNO055();
+
+
 //barometer
 Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
 void displaySensorDetails(void)
@@ -62,22 +97,9 @@ void displaySensorDetails(void)
   Serial.println("------------------------------------");
   Serial.println("");
   delay(500);
-}
-// Loop variables
-uint16_t dt;  // Stores time in micros for gyro integration
-uint32_t start;
-uint32_t finish;
+}//end displaySensorDetails(void)
 
-volatile uint8_t ISR_count = 0;  // Count variable
-volatile uint8_t orient_update = 0;  // Update orientation flag
-volatile uint8_t servo_update = 0;  // Update servo positions
-volatile uint8_t airspeed_update = 0;  // Update airspeed measurement
-volatile uint8_t altitude_update = 0; //Update Altitude
-//volatile uint8_t gps_update = 0; //Update Altitude
-                    // Error code returned when MPU6050 is read
-int temp;
-long tic;
-long toc;
+
 
 // Main functions
 //void UpdateOrientation();
@@ -113,31 +135,40 @@ PID rollPID(&aroll  , &aailerion, &desiredRoll , rollKp, rollKi, rollKd, DIRECT)
 PID pitchPID(&apitch, &aelevator, &desiredPitch, pitchKp, pitchKi, pitchKd, DIRECT);
 PID yawPID(&ayaw    , &arudder  , &desiredYaw  , yawKp, yawKi, yawKd, DIRECT);
 
+
+
+
+
 void setup() {
-  // put your setup code here, to run once:
+ 
+    //communcication init
     Serial.begin(9600);
-    
+     Wire.begin();  // Initialize I2C bus
+     
+     
+    //PID INIT
  rollPID.SetMode(AUTOMATIC);
  pitchPID.SetMode(AUTOMATIC);
  yawPID.SetMode(AUTOMATIC);
  
  
- 
-  Wire.begin();  // Initialize I2C bus
+ //servo init
   ServoInit();  // Initialize servos
   //attaches servos on pin 5-7 and intializes testing motion
   
  
-  // Initialize MPU6050
+  // InitializeISR
   ISR_init((float)ISR_FREQ);  // Initialize timer 2 at specified interrupt frequency
 
-  // Check for pitot tube sensor
+  // Airspeed sensor
   raw_airspeed = analogRead(PITOT_APIN);
   if (raw_airspeed > 500 && raw_airspeed < 575) pitot_attached = 1;
   Serial.println(pitot_attached);
 
   finish = micros();
   
+  
+  //9dof init
    Serial.println("Orientation Sensor Raw Data Test"); Serial.println("");
   
   /* Initialise the sensor */
@@ -157,6 +188,8 @@ void setup() {
   
   bno.setExtCrystalUse(true);
   
+  
+  //altimiter init
   Serial.println("Pressure Sensor Test"); Serial.println("");
   
   /* Initialise the sensor */
@@ -173,22 +206,12 @@ void setup() {
 
 void loop() {
   
-//GET CURRENT VALUE
-//CHANGE DESIRED VALUE
 
   if (orient_update)  UpdateOrientation();
   if (servo_update)  UpdateServos();
   if (airspeed_update)  UpdateAirspeed();
   if (altitude_update) UpdateAltitude();
 
-//Calc PID
-/*
-for(int a = 0; a < 6; a++) {
-  error[a] = currentValue[a] - desiredValue[a];
-  sum[a] += error[a];
-  PIDvalue[a] = Kp[a]*error[a] + Ki*sum[a] + Kd*(error[a]-errorOld[a]);
-  errorOld[a] = error[a];
-  */
 
 }
 
@@ -221,7 +244,8 @@ void UpdateServos() {
   yawPID.Compute();
 
   // Elevator, LAileron, RAileron
- }
+ }//endUpdateServos
+ 
 void UpdateAirspeed() {
   airspeed_update = 0;
 
@@ -233,15 +257,15 @@ void UpdateAirspeed() {
 
   airspeed = .25 * airspeed + .75 * last_airspeed;
   last_airspeed = airspeed;
-}
+}//end Update Airspeed
 
 void CenterAll() {
   // Center all servos
-  elevatorservo.writeMicroseconds(1500);
+ elevatorservo.writeMicroseconds(1500);
  raileronservo.writeMicroseconds(1500);
  laileronservo.writeMicroseconds(1500);
   
-}
+}//end Center all
 
 
 ISR(TIMER2_COMPA_vect)  // Interrupt service routine @ 200Hz
@@ -254,7 +278,7 @@ ISR(TIMER2_COMPA_vect)  // Interrupt service routine @ 200Hz
  // if ((ISR_count % 60) == 0)  gps_update =1 ; //sample gps
   if (ISR_count >= 250)  ISR_count = 0;  // Reset ISR_count
 
-}
+}//ISR END
 
 
 void ISR_init(float frequency)
@@ -274,8 +298,7 @@ void ISR_init(float frequency)
   TIMSK2 |= (1 << OCIE2A);  // Enable compare match interrupt
 
   sei();                    // Enable global interrupts
-}
-
+}//End ISR INIt
 
 /*
 void UpdateGPS(){
@@ -335,15 +358,15 @@ void UpdateAltitude(){
     Serial.println("Sensor error");
   }
 }
-}
+}//end altitude
 
 void ServoInit() {
   // Initialize control values
   
  
- elevatorservo.attach(elevatorservo ); 
- raileronservo.attach(raileironservo);
- laileronservo.attach(laileironservo);
+ elevatorservo.attach(elevatorservoo ); 
+ raileronservo.attach(raileironservoo);
+ laileronservo.attach(laileironservoo);
 elevatorservo.writeMicroseconds(1500);
  raileronservo.writeMicroseconds(1500);
  laileronservo.writeMicroseconds(1500);
@@ -375,6 +398,6 @@ elevatorservo.writeMicroseconds(1500);
    laileronservo.writeMicroseconds(2000);
    delay(500);
    laileronservo.writeMicroseconds(1500);
-  }
+  
   delay(1000);
-}
+}//end Servo init
